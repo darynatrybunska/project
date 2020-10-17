@@ -1,0 +1,163 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[13]:
+
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+from scipy.stats import norm
+import matplotlib.pyplot as plt
+import seaborn as sns
+from tqdm.auto import tqdm
+sns.set(
+    font_scale=1,
+    style="whitegrid",
+    rc={'figure.figsize':(20,7)}
+        )
+
+plt.style.use('ggplot')
+
+
+# In[14]:
+
+
+# Объявим функцию, которая позволит проверять гипотезы с помощью бутстрапа
+
+
+# In[48]:
+
+
+def get_bootstrap(
+     data_column_1, # numeric values of the first sample
+     data_column_2, # numeric values of the second sample
+     boot_it = 10000, # number of bootstrap subsamples
+     statistic = np.mean, # statistics we are interested in
+     bootstrap_conf_level = 0.95 # significance level
+):
+    boot_len = max([len(data_column_1), len(data_column_2)])
+    boot_data = []
+    for i in tqdm(range(boot_it)): # fetch subsamples
+        samples_1 = data_column_1.sample(
+            boot_len, 
+            replace = True # return parameter
+        ).values
+        
+        samples_2 = data_column_2.sample(
+            boot_len, # take the same sample size to keep variance
+            replace = True
+        ).values
+        
+        boot_data.append(statistic(samples_1-samples_2)) 
+    pd_boot_data = pd.DataFrame(boot_data)
+    
+        
+    left_quant = (1 - bootstrap_conf_level)/2
+    right_quant = 1 - (1 - bootstrap_conf_level) / 2
+    quants = pd_boot_data.quantile([left_quant, right_quant])
+        
+    p_1 = norm.cdf(
+        x = 0, 
+        loc = np.mean(boot_data), 
+        scale = np.std(boot_data)
+    )
+    p_2 = norm.cdf(
+        x = 0, 
+        loc = -np.mean(boot_data), 
+        scale = np.std(boot_data)
+    )
+    p_value = min(p_1, p_2) * 2
+        
+    # Визуализация
+    _, _, bars = plt.hist(pd_boot_data[0], bins = 50)
+    for bar in bars:
+        if abs(bar.get_x()) <= quants.iloc[0][0] or abs(bar.get_x()) >= quants.iloc[1][0]:
+            bar.set_facecolor('red')
+        else: 
+            bar.set_facecolor('grey')
+            bar.set_edgecolor('black')
+    
+    plt.style.use('ggplot')
+    plt.vlines(quants,ymin=0,ymax=50,linestyle='--')
+    plt.xlabel('boot_data')
+    plt.ylabel('frequency')
+    plt.title("Histogram of boot_data")
+    plt.show()
+       
+    return {"boot_data": boot_data, 
+            "quants": quants, 
+            "p_value": p_value,
+            "pd_boot_data":pd_boot_data }
+
+
+# In[50]:
+
+
+df = pd.read_csv('https://stepik.org/media/attachments/lesson/389496/hw_bootstrap.csv', sep=';')
+df = df.drop(columns='Unnamed: 0')
+df.value= df.value.str.replace(',','.',regex=True).astype({"value": float})
+
+sample_1 = df.query('experimentVariant == "Treatment"').value
+sample_2 = df.query('experimentVariant != "Treatment"').value
+
+
+# In[51]:
+
+# Hypotheses for testing:
+     # H0 = the means between the two samples are equal
+     # H1 = the means between the two samples do not differ
+
+
+# In[52]:
+
+
+booted_data = get_bootstrap(sample_1, sample_2) # 
+
+# In[53]:
+
+
+booted_data["p_value"] # alpha
+
+
+# In[54]:
+
+
+booted_data["quants"] #confidence interval
+
+
+# In[55]:
+
+
+stats.mannwhitneyu(sample_1, sample_2)
+
+
+# In[56]:
+
+
+ax = sns.boxplot(x="experimentVariant", y="value", data=df)
+
+
+# In[57]:
+
+
+sns.distplot(sample_1,kde=False, bins=20)
+sns.distplot(sample_2,kde=False, bins=20)
+
+
+# ## Conclusions
+#
+# The results of the tests performed showed that, according to the obtained p value, statistically important differences were found between the two samples.
+# However, the bootstrap gave a lower p-value (the results are more statistically significant), which is explained by the difference in the implementation of the methods:
+# - the test used a sample of different dimensions (data from the "Treatment" group is 10 times less than the control group);
+# - when resampling data in bootstrap, the maximum group size was used to preserve variance, which contributed to a more uniform comparison
+# - the Mann-Whitney test uses the calculation of ranks in two samples; since the compared samples differ significantly in their dimensions, therefore the sum of ranks for "Treatment" was obviously less than for the second group, which could affect the quality of the results.
+#
+# In addition, if the bootstrap displays the difference in comparisons of the means between the two samples (since the statistic used = np.mean), then the Mann-Whitney test rather assesses whether the distributions of the two evaluated samples are the same or not.
+# In my opinion, this factor also reflects the difference in the results obtained.
+
+# In[ ]:
+
+
+
+
